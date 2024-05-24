@@ -102,7 +102,7 @@ grant usage on function retrieve_sl_metadata() to role public;
 
 /* UDF - Submit SL Request, Return Data */
 
-create or replace function submit_sl_request(payload string)
+create or replace function submit_sl_request(host string, environment_id integer, payload string, token string)
     returns object
     language python
     runtime_version = 3.9
@@ -118,12 +118,12 @@ import json
 import requests
 
 
-def main(payload: str):
+def main(host: str, environment_id: int, payload: str, token: str):
     session = requests.Session()
     token = _snowflake.get_generic_secret_string('cred')
     session.headers = {'Authorization': f'Bearer {token}'}
     payload = json.loads(payload)
-    results = submit_request(session, payload)
+    results = submit_request(session, host, payload, environment_id)
     try:
         query_id = results["data"]["createQuery"]["queryId"]
     except TypeError as e:
@@ -143,7 +143,7 @@ def main(payload: str):
             }
         """
         results_payload = {"variables": {"queryId": query_id}, "query": graphql_query}
-        results = submit_request(session, results_payload)
+        results = submit_request(session,  host, results_payload, environment_id)
         try:
             data = results["data"]["query"]
         except TypeError as e:
@@ -155,12 +155,16 @@ def main(payload: str):
 
     return data
 
-def submit_request(session: requests.Session, payload: Dict):
+def submit_request(session: requests.Session, host: str, payload: dict, environment_id: int):
+    print(host)
     if not "variables" in payload:
         payload["variables"] = {}
-    payload["variables"].update({"environmentId": 1})
+    payload["variables"].update({"environmentId": environment_id})
+    if host[-1] == '/':
+        host = host[:-1]    
+    url = f'https://{host}/api/graphql'
     response = session.post(
-        "https://semantic-layer.cloud.getdbt.com/api/graphql", json=payload
+        url, json=payload
     )
     response.raise_for_status()
     return response.json()
